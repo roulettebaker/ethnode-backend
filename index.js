@@ -22,15 +22,30 @@ const NodeModel = mongoose.model("Node", new mongoose.Schema({
   status: String,
   statusColor: String,
   reliability: Number,
-  countdown: Number
+  countdownMinutes: Number
 }, { collection: "nodes" }));
 
+// Tüm node'ları al
 app.get("/nodes", async (req, res) => {
   try {
     const nodes = await NodeModel.find();
     res.json(nodes);
   } catch (err) {
     res.status(500).json({ error: "Failed to load nodes" });
+  }
+});
+
+// Tek bir node'u ID'ye göre al
+app.get("/nodes/:id", async (req, res) => {
+  try {
+    const node = await NodeModel.findOne({ id: req.params.id });
+    if (!node) {
+      return res.status(404).json({ error: "Node not found" });
+    }
+    res.json(node);
+  } catch (err) {
+    console.error("Error fetching node:", err);
+    res.status(500).json({ error: "Failed to load node" });
   }
 });
 
