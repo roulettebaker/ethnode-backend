@@ -1,11 +1,11 @@
-// index.js  – ETH-Node backend (Express + Mongoose)
+// index.js – ETH-Node backend (Express + Mongoose)
 const express  = require("express");
 const cors     = require("cors");
 const mongoose = require("mongoose");
 const { Decimal128 } = require("mongodb");
 
-/*****************  CONFIG  ******************/
-const app  = express();
+/***************** CONFIG ******************/
+const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI =
   process.env.MONGO_URI ||
@@ -14,11 +14,11 @@ const ADMIN_KEY        = process.env.ADMIN_KEY || "dev-key-change-me";
 const SIMULATE_PAYMENT =
   String(process.env.SIMULATE_PAYMENT || "false").toLowerCase() === "true";
 
-/****************  MIDDLEWARE  ***************/
+/**************** MIDDLEWARE ***************/
 app.use(cors());
 app.use(express.json());
 
-/*****************  DATABASE  ****************/
+/**************** DATABASE *****************/
 mongoose.set("strictQuery", true);
 mongoose
   .connect(MONGO_URI)
@@ -32,7 +32,7 @@ mongoose
     process.exit(1);
   });
 
-/**************  SCHEMAS & MODELS  ***********/
+/************** SCHEMAS & MODELS ***********/
 const NodeSchema = new mongoose.Schema(
   {
     id: String,
@@ -53,14 +53,23 @@ const NodeModel = mongoose.model("Node", NodeSchema);
 
 const UserSchema = new mongoose.Schema(
   {
-    machineId:    { type: String, required: true, unique: true },
-    ethAddress:   { type: String, required: true },
-    paymentStatus:{ type: Boolean, default: false },
-    rewardAddress:{ type: String, required: true },
-    selectedNode: { type: String }
+    machineId:      { type: String, required: true, unique: true },
+    ethAddress:     { type: String, required: true },
+    paymentStatus:  { type: Boolean, default: false },
+    rewardAddress:  { type: String, required: true },
+    selectedNodeId: { type: String },
+
+    /* ek alanlar panelde ihtiyaç duyulanlar */
+    gasFee:          mongoose.Schema.Types.Decimal128,
+    gasPaid:         Boolean,
+    depositAmount:   String,
+    estimatedReward: String,
+    txHash:          String,
+    txTimestamp:     String
   },
   {
     collection: "users",
+    strict: false, // bilinmeyen alanları da sakla–döndür
     timestamps: { createdAt: "createdAt", updatedAt: "updatedAt" }
   }
 );
@@ -98,10 +107,10 @@ app.get("/nodes/:id", async (req, res) => {
   }
 });
 
-/* ---------- USERS (public) ---------- */
+/* ---------- USERS ---------- */
 const upsertHandler = async (req, res) => {
   try {
-    const { machineId, ethAddress, selectedNode } = req.body;
+    const { machineId, ethAddress, selectedNodeId } = req.body;
     if (!machineId || !ethAddress)
       return res.status(400).json({ error: "machineId ve ethAddress zorunlu." });
 
@@ -109,7 +118,7 @@ const upsertHandler = async (req, res) => {
       { machineId },
       {
         ethAddress,
-        selectedNode: selectedNode || "node-1",
+        selectedNodeId: selectedNodeId || "node-1",
         $setOnInsert: { paymentStatus: false, rewardAddress: makeRewardAddress() }
       },
       { upsert: true, new: true }
@@ -121,34 +130,19 @@ const upsertHandler = async (req, res) => {
       }, 15000);
     }
 
-    res.json({
-      success: true,
-      machineId: user.machineId,
-      paymentStatus: user.paymentStatus,
-      rewardAddress: user.rewardAddress,
-      selectedNode: user.selectedNode
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    res.json({ success: true, machineId: user.machineId });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 };
 app.post("/users/upsert", upsertHandler);
 app.post("/api/users/upsert", upsertHandler);
 
+/* ---- FULL user document ---- */
 app.get("/users/:machineId", async (req, res) => {
   try {
-    const user = await User.findOne({ machineId: req.params.machineId });
+    const user = await User.findOne({ machineId: req.params.machineId }).lean();
     if (!user) return res.status(404).json({ error: "User not found" });
-    res.json({
-      machineId: user.machineId,
-      paymentStatus: user.paymentStatus,
-      rewardAddress: user.rewardAddress,
-      ethAddress: user.ethAddress,
-      selectedNode: user.selectedNode
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    res.json(user);                  // bütün alanları gönder
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ---------- ADMIN PATCH ENDPOINTS ---------- */
@@ -164,9 +158,7 @@ app.post("/admin/users/update", adminAuth, async (req, res) => {
     const user = await User.findOneAndUpdate({ machineId }, patch, { new: true });
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/admin/nodes/update", adminAuth, async (req, res) => {
@@ -178,20 +170,16 @@ app.post("/admin/nodes/update", adminAuth, async (req, res) => {
     const node = await NodeModel.findOneAndUpdate({ id }, patch, { new: true });
     if (!node) return res.status(404).json({ error: "Node not found" });
     res.json(node);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-/* --- NEW: machineId listesini panel için ver --- */
+/* machineId listesi panel için */
 app.get("/admin/users/list", adminAuth, async (_req, res) => {
   try {
     const ids = await User.find({}, "machineId").lean();
     res.json(ids.map(u => u.machineId));
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-/*****************  START  *******************/
+/***************** START *********************/
 app.listen(PORT, () => console.log(`🚀 Server ready on :${PORT}`));
