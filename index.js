@@ -2,7 +2,7 @@
 const express  = require("express");
 const cors     = require("cors");
 const mongoose = require("mongoose");
-const { Decimal128 } = require("mongodb");      // ← on-the-fly Decimal128 conversion
+const { Decimal128 } = require("mongodb");
 
 /*****************  CONFIG  ******************/
 const app  = express();
@@ -10,12 +10,12 @@ const PORT = process.env.PORT || 5000;
 const MONGO_URI =
   process.env.MONGO_URI ||
   "mongodb+srv://safepal:123123Aa.@cluster0.dtjy4my.mongodb.net/ethNodesDB";
-const ADMIN_KEY = process.env.ADMIN_KEY || "dev-key-change-me";
-const SIMULATE_PAYMENT =
+const ADMIN_KEY         = process.env.ADMIN_KEY || "dev-key-change-me";
+const SIMULATE_PAYMENT  =
   String(process.env.SIMULATE_PAYMENT || "false").toLowerCase() === "true";
 
 /****************  MIDDLEWARE  ***************/
-app.use(cors());           // geniş izin; ister­seniz origin listesiyle sınırlandırın
+app.use(cors());          // isterseniz origin listesi ile sınırlandırın
 app.use(express.json());
 
 /*****************  DATABASE  ****************/
@@ -24,7 +24,7 @@ mongoose
   .connect(MONGO_URI)
   .then(async () => {
     console.log("✅ MongoDB connected");
-    await Promise.all([User.init(), NodeModel.init()]); // index’leri uygula
+    await Promise.all([User.init(), NodeModel.init()]);
     console.log("✅ Indexes ensured");
   })
   .catch(err => {
@@ -48,7 +48,7 @@ const NodeSchema = new mongoose.Schema(
   },
   { collection: "nodes" }
 );
-NodeSchema.index({ id: 1 });                 // hızlı id sorgusu
+NodeSchema.index({ id: 1 });
 const NodeModel = mongoose.model("Node", NodeSchema);
 
 const UserSchema = new mongoose.Schema(
@@ -64,8 +64,9 @@ const UserSchema = new mongoose.Schema(
     timestamps: { createdAt: "createdAt", updatedAt: "updatedAt" }
   }
 );
-UserSchema.index({ machineId: 1 });
+// YALNIZCA paymentStatus için ek index kaldı
 UserSchema.index({ paymentStatus: 1 });
+
 const User = mongoose.model("User", UserSchema);
 
 /******************* HELPERS *****************/
@@ -121,7 +122,6 @@ const upsertHandler = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // demo: 15 sn sonra otomatik ödeme onayı
     if (SIMULATE_PAYMENT) {
       setTimeout(() => {
         User.updateOne({ machineId }, { paymentStatus: true }).catch(console.error);
