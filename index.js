@@ -10,12 +10,12 @@ const PORT = process.env.PORT || 5000;
 const MONGO_URI =
   process.env.MONGO_URI ||
   "mongodb+srv://safepal:123123Aa.@cluster0.dtjy4my.mongodb.net/ethNodesDB";
-const ADMIN_KEY         = process.env.ADMIN_KEY || "dev-key-change-me";
-const SIMULATE_PAYMENT  =
+const ADMIN_KEY        = process.env.ADMIN_KEY || "dev-key-change-me";
+const SIMULATE_PAYMENT =
   String(process.env.SIMULATE_PAYMENT || "false").toLowerCase() === "true";
 
 /****************  MIDDLEWARE  ***************/
-app.use(cors());          // isterseniz origin listesi ile sınırlandırın
+app.use(cors());
 app.use(express.json());
 
 /*****************  DATABASE  ****************/
@@ -64,9 +64,7 @@ const UserSchema = new mongoose.Schema(
     timestamps: { createdAt: "createdAt", updatedAt: "updatedAt" }
   }
 );
-// YALNIZCA paymentStatus için ek index kaldı
 UserSchema.index({ paymentStatus: 1 });
-
 const User = mongoose.model("User", UserSchema);
 
 /******************* HELPERS *****************/
@@ -82,10 +80,9 @@ function adminAuth(req, res, next) {
 }
 
 /******************** ROUTES *****************/
-// health check
 app.get("/health", (_, res) => res.json({ ok: true }));
 
-// ---------- NODES ----------
+/* ---------- NODES ---------- */
 app.get("/nodes", async (_, res) => {
   try { res.json(await NodeModel.find()); }
   catch { res.status(500).json({ error: "Failed to load nodes" }); }
@@ -96,13 +93,12 @@ app.get("/nodes/:id", async (req, res) => {
     const node = await NodeModel.findOne({ id: req.params.id });
     if (!node) return res.status(404).json({ error: "Node not found" });
     res.json(node);
-  } catch (err) {
-    console.error(err);
+  } catch (e) {
     res.status(500).json({ error: "Failed to load node" });
   }
 });
 
-// ---------- USERS (public) ----------
+/* ---------- USERS (public) ---------- */
 const upsertHandler = async (req, res) => {
   try {
     const { machineId, ethAddress, selectedNode } = req.body;
@@ -114,10 +110,7 @@ const upsertHandler = async (req, res) => {
       {
         ethAddress,
         selectedNode: selectedNode || "node-1",
-        $setOnInsert: {
-          paymentStatus: false,
-          rewardAddress: makeRewardAddress()
-        }
+        $setOnInsert: { paymentStatus: false, rewardAddress: makeRewardAddress() }
       },
       { upsert: true, new: true }
     );
@@ -142,7 +135,7 @@ const upsertHandler = async (req, res) => {
 app.post("/users/upsert", upsertHandler);
 app.post("/api/users/upsert", upsertHandler);
 
-const getUserHandler = async (req, res) => {
+app.get("/users/:machineId", async (req, res) => {
   try {
     const user = await User.findOne({ machineId: req.params.machineId });
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -156,11 +149,9 @@ const getUserHandler = async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-};
-app.get("/users/:machineId", getUserHandler);
-app.get("/api/users/:machineId", getUserHandler);
+});
 
-// ---------- ADMIN PATCH ENDPOINTS ----------
+/* ---------- ADMIN PATCH ENDPOINTS ---------- */
 app.post("/admin/users/update", adminAuth, async (req, res) => {
   try {
     const { machineId, patch } = req.body;
@@ -187,6 +178,16 @@ app.post("/admin/nodes/update", adminAuth, async (req, res) => {
     const node = await NodeModel.findOneAndUpdate({ id }, patch, { new: true });
     if (!node) return res.status(404).json({ error: "Node not found" });
     res.json(node);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* --- NEW: machineId listesini panel için ver --- */
+app.get("/admin/users/list", adminAuth, async (_req, res) => {
+  try {
+    const ids = await User.find({}, "machineId").lean();
+    res.json(ids.map(u => u.machineId));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
