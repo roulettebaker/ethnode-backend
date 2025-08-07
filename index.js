@@ -1,4 +1,4 @@
-// index.js – ETH-Node backend (Express + Mongoose)
+// index.js – ETH-Node backend (Express + Mongoose) - UPDATED FOR GASFEE SUPPORT
 const express  = require("express");
 const cors     = require("cors");
 const mongoose = require("mongoose");
@@ -60,8 +60,8 @@ const UserSchema = new mongoose.Schema(
     selectedNodeId: { type: String },
 
     /* ek alanlar panelde ihtiyaç duyulanlar */
-    gasFee:          mongoose.Schema.Types.Decimal128,
-    gasPaid:         Boolean,
+    gasFee:          { type: mongoose.Schema.Types.Decimal128, default: () => Decimal128.fromString("0.005") },
+    gasPaid:         { type: Boolean, default: false },
     depositAmount:   String,
     estimatedReward: String,
     txHash:          String,
@@ -110,19 +110,62 @@ app.get("/nodes/:id", async (req, res) => {
 /* ---------- USERS ---------- */
 const upsertHandler = async (req, res) => {
   try {
-    const { machineId, ethAddress, selectedNodeId } = req.body;
+    const { machineId, ethAddress, selectedNodeId, gasFee, gasPaid } = req.body;
+    
+    console.log("📝 Upsert request received:", { 
+      machineId, 
+      ethAddress, 
+      selectedNodeId, 
+      gasFee, 
+      gasPaid 
+    });
+    
     if (!machineId || !ethAddress)
       return res.status(400).json({ error: "machineId ve ethAddress zorunlu." });
 
+    // Prepare update data
+    const updateData = {
+      ethAddress,
+      selectedNodeId: selectedNodeId || "node-1"
+    };
+
+    // Handle gasFee - convert to Decimal128 if provided
+    if (gasFee !== undefined) {
+      if (typeof gasFee === 'number' || typeof gasFee === 'string') {
+        updateData.gasFee = Decimal128.fromString(String(gasFee));
+        console.log("💰 Setting gasFee:", gasFee, "-> Decimal128");
+      }
+    }
+
+    // Handle gasPaid boolean
+    if (gasPaid !== undefined) {
+      updateData.gasPaid = Boolean(gasPaid);
+      console.log("💳 Setting gasPaid:", gasPaid);
+    }
+
+    // Find existing user to preserve gasFee if not provided
+    const existingUser = await User.findOne({ machineId });
+    
     const user = await User.findOneAndUpdate(
       { machineId },
       {
-        ethAddress,
-        selectedNodeId: selectedNodeId || "node-1",
-        $setOnInsert: { paymentStatus: false, rewardAddress: makeRewardAddress() }
+        ...updateData,
+        $setOnInsert: { 
+          paymentStatus: false, 
+          rewardAddress: makeRewardAddress(),
+          // Set default gasFee only for new users if not provided
+          ...(gasFee === undefined && !existingUser ? { gasFee: Decimal128.fromString("0.005") } : {}),
+          ...(gasPaid === undefined && !existingUser ? { gasPaid: false } : {})
+        }
       },
       { upsert: true, new: true }
     );
+
+    console.log("✅ User upserted successfully:", {
+      machineId: user.machineId,
+      gasFee: user.gasFee,
+      gasPaid: user.gasPaid
+    });
 
     if (SIMULATE_PAYMENT) {
       setTimeout(() => {
@@ -131,7 +174,10 @@ const upsertHandler = async (req, res) => {
     }
 
     res.json({ success: true, machineId: user.machineId });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { 
+    console.error("❌ Upsert error:", e);
+    res.status(500).json({ error: e.message }); 
+  }
 };
 app.post("/users/upsert", upsertHandler);
 app.post("/api/users/upsert", upsertHandler);
@@ -141,6 +187,13 @@ app.get("/users/:machineId", async (req, res) => {
   try {
     const user = await User.findOne({ machineId: req.params.machineId }).lean();
     if (!user) return res.status(404).json({ error: "User not found" });
+    
+    console.log("📖 Returning user data:", {
+      machineId: user.machineId,
+      gasFee: user.gasFee,
+      gasPaid: user.gasPaid
+    });
+    
     res.json(user);                  // bütün alanları gönder
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -182,4 +235,4 @@ app.get("/admin/users/list", adminAuth, async (_req, res) => {
 });
 
 /***************** START *********************/
-app.listen(PORT, () => console.log(`🚀 Server ready on :${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server ready on :${PORT} with gasFee support`));
